@@ -4,17 +4,19 @@ module ObfuscateId
 
     extend ClassMethods
     include InstanceMethods
+
     cattr_accessor :obfuscate_id_spin, :clean_url_class_name
+
     self.obfuscate_id_spin = (options[:spin] || obfuscate_id_default_spin)
     set_clean_url_class_name
   end
 
-  def self.hide(id,name, spin)
-    name + ScatterSwap.hash(id, spin)
+  def self.hide(id, name, spin)
+    'oid-' + ScatterSwap.hash(id, spin)
   end
 
-  def self.show(id,name, spin)
-    ScatterSwap.reverse_hash(id.gsub(name, ""), spin)
+  def self.show(id, name, spin)
+    ScatterSwap.reverse_hash(id.gsub('oid-', ''), spin)
   end
 
   module ClassMethods
@@ -41,7 +43,11 @@ module ObfuscateId
     end
 
     def deobfuscate_id(obfuscated_id)
-      ObfuscateId.show(obfuscated_id, self.clean_url_class_name, self.obfuscate_id_spin)
+      if obfuscated_id.start_with? 'oid-'
+        ObfuscateId.show(obfuscated_id, self.clean_url_class_name, self.obfuscate_id_spin)
+      else
+        obfuscated_id
+      end
     end
 
     # Generate a default spin from the Model name
