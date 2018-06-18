@@ -43,7 +43,7 @@ module ObfuscateId
     end
 
     def deobfuscate_id(obfuscated_id)
-      if obfuscated_id.start_with? 'oid-'
+      if obfuscated_id.to_s.start_with? 'oid-'
         ObfuscateId.show(obfuscated_id, self.clean_url_class_name, self.obfuscate_id_spin)
       else
         obfuscated_id
