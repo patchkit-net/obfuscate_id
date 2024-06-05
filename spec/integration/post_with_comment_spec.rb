@@ -30,8 +30,8 @@ describe "Models with and without ObfuscateId" do
     it "has plain id attibute" do
       should have_content("post: First Post")
       should have_content("post.id: 1")
-      should have_content("post.to_param: oid-0587646369")
-      should have_content('post_path: /posts/oid-0587646369.')
+      should have_content("post.to_param: post-0587646369")
+      should have_content('post_path: /posts/post-0587646369.')
     end
   end
 
@@ -53,7 +53,8 @@ describe "Models with and without ObfuscateId" do
 
       class Comment < ActiveRecord::Base
         belongs_to :post
-        obfuscate_id spin: 987654321
+        obfuscate_id spin: 987654321, name: 'cm'
+
       end
 
       click_on "Edit Post"
@@ -69,15 +70,15 @@ describe "Models with and without ObfuscateId" do
     it "Post is updated and has obfuscated_id" do
       should have_content("post: Updated first post")
       should have_content("post.id: 1")
-      should have_content("post.to_param: oid-0587646369")
-      should have_content("post_path: /posts/oid-0587646369")
+      should have_content("post.to_param: post-0587646369")
+      should have_content("post_path: /posts/post-0587646369")
     end
 
     it "Comment is updated and has obfuscated_id" do
       should have_content("comment: Updated first comment")
       should have_content("comment.id: 1")
-      should have_content("comment.to_param: oid-2985164038")
-      should have_content("comment_path: /comments/oid-2985164038")
+      should have_content("comment.to_param: cm-2985164038")
+      should have_content("comment_path: /comments/cm-2985164038")
     end
   end
 end
