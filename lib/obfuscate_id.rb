@@ -1,4 +1,6 @@
 module ObfuscateId
+  extend ActiveSupport::Concern
+
   # Custom exception for non-obfuscated IDs when enforce_obfuscated is true
   class NonObfuscatedIdError < StandardError; end
 
@@ -20,12 +22,33 @@ module ObfuscateId
     set_clean_url_class_name(name: options[:name])
   end
 
+  # Truncate a spin value to a safe size (max 9 digits)
+  # to prevent RangeError in ScatterSwap's rotate! method
+  def self.truncate_spin(spin)
+    max_safe_spin = 999_999_999 # 9 digits
+    spin_int = spin.to_i
+    if spin_int > max_safe_spin
+      spin_int % max_safe_spin
+    else
+      spin_int
+    end
+  end
+
   def self.hide(id, name, spin)
-    "#{name}-" + ScatterSwap.hash(id, spin)
+    id = id.to_i
+    name = name.to_s
+    # Use truncate_spin for spin value to prevent RangeError
+    safe_spin = truncate_spin(spin)
+    "#{name}-" + ScatterSwap.hash(id, safe_spin)
   end
 
   def self.show(id, name, spin)
-    ScatterSwap.reverse_hash(id.gsub("#{name}-", ''), spin)
+    name = name.to_s
+    # Strip off the name prefix
+    id = id[name.length + 1..-1] if id.to_s.starts_with?("#{name}-")
+    # Use truncate_spin for spin value to prevent RangeError
+    safe_spin = truncate_spin(spin)
+    ScatterSwap.reverse_hash(id, safe_spin)
   end
 
   module ClassMethods
@@ -72,23 +95,30 @@ module ObfuscateId
     end
 
     def deobfuscate_id(obfuscated_id)
-      if obfuscated_id.to_s.start_with? "#{clean_url_class_name}-"
-        ObfuscateId.show(obfuscated_id, clean_url_class_name, obfuscate_id_spin)
+      # Ensure clean_url_class_name is a string
+      class_name_str = clean_url_class_name.to_s
+      if obfuscated_id.to_s.start_with? "#{class_name_str}-"
+        ObfuscateId.show(obfuscated_id, class_name_str, obfuscate_id_spin)
       else
         obfuscated_id
       end
     end
 
-    # Generate a default spin from the Model name
-    # This makes it easy to drop obfuscate_id onto any model
-    # and produce different obfuscated ids for different models
+    # Truncate a spin value to a safe size (max 9 digits)
+    # to prevent RangeError in ScatterSwap's rotate! method
+    def truncate_spin(spin)
+      ObfuscateId.truncate_spin(spin)
+    end
+
+    # Generate a default spin from the model name
+    # This makes it different for each model
     def obfuscate_id_default_spin
       alphabet = Array('a'..'z')
       number = name.split('').collect do |char|
         alphabet.index(char)
       end
 
-      number.shift(12).join.to_i
+      truncate_spin(number.shift(12).join.to_i)
     end
   end
 

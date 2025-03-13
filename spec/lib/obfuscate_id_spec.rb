@@ -84,6 +84,28 @@ describe ObfuscateId do
     end
   end
 
+  describe 'with symbol as name option' do
+    it 'handles symbol name without errors' do
+      result = ObfuscateId.hide(123, :int, 1_234_567)
+      expect(result).to start_with('int-')
+      expect(ObfuscateId.show(result, :int, 1_234_567).to_i).to eq(123)
+    end
+
+    it 'works with the specific :int symbol reported in the issue' do
+      test_id = 3
+      # Test direct method calls instead of using a model
+      obfuscated = ObfuscateId.hide(test_id, :int, 20_151_514_171_913_142_211)
+      expect(obfuscated).to start_with('int-')
+      expect(ObfuscateId.show(obfuscated, :int, 20_151_514_171_913_142_211).to_i).to eq(test_id)
+
+      # The truncate_spin method should properly handle the large spin
+      spin = 20_151_514_171_913_142_211
+      truncated_spin = ObfuscateId.send(:truncate_spin, spin)
+      expect(truncated_spin).to be <= 999_999_999
+      expect(ScatterSwap::Hasher.new(test_id, truncated_spin)).to be_a(ScatterSwap::Hasher)
+    end
+  end
+
   describe 'enforce_obfuscated option' do
     let(:user) { User.create(id: 1) }
     let(:obfuscated_id) { user.to_param }
@@ -151,6 +173,77 @@ describe ObfuscateId do
           end
         end.to raise_error(ArgumentError, "Option 'name' must be set when 'enforce_obfuscated' is true")
       end
+    end
+  end
+
+  context 'with direct call to scatter_swap' do
+    it 'handles symbols in the ScatterSwap calls' do
+      require 'scatter_swap'
+
+      # Testing if a direct call to ScatterSwap with a Symbol would cause the RangeError
+      id = 9_223_372_036_854_775_807 # Max 64-bit integer
+      name = :int
+
+      # If this fails with a RangeError, it would confirm the issue
+      expect do
+        ObfuscateId.hide(id, name, 1234)
+      end.not_to raise_error
+
+      # Try an even larger number
+      huge_id = 18_446_744_073_709_551_615 # 2^64 - 1
+
+      # In this environment, ScatterSwap can handle large numbers without issues
+      expect do
+        # Test ScatterSwap directly
+        ScatterSwap.hash(huge_id, 1234)
+      end.not_to raise_error
+    end
+  end
+
+  describe 'with very large spin value' do
+    it 'handles the large spin without error' do
+      # This is the specific value that caused the error in production
+      large_spin = 20_151_514_171_913_142_211
+
+      # These are the exact arguments from the stack trace
+      # Using Kernel.eval to bypass the Ruby parser's limit on integer size
+      expect do
+        # We need a direct call to the ScatterSwap::Hasher's internal method
+        # since that's where the error occurs
+        plain_integer = 3
+        spin = large_spin
+        hasher = ScatterSwap::Hasher.new(plain_integer, spin)
+
+        # Force the error to occur by calling the method that performs the rotate
+        hasher.send(:swapper_map, 0)
+      end.to raise_error(RangeError, /bignum too big to convert into `long'/)
+    end
+  end
+
+  describe '#truncate_spin' do
+    before do
+      class User < ActiveRecord::Base
+        obfuscate_id
+      end
+    end
+
+    it 'truncates large spin values to a safe size' do
+      large_spin = 20_151_514_171_913_142_211
+      truncated_spin = User.truncate_spin(large_spin)
+
+      # Ensure it's less than our maximum safe value
+      expect(truncated_spin).to be <= 999_999_999
+
+      # Ensure we can use it without errors
+      expect do
+        hasher = ScatterSwap::Hasher.new(3, truncated_spin)
+        hasher.send(:swapper_map, 0)
+      end.not_to raise_error
+    end
+
+    it 'leaves small spin values unchanged' do
+      small_spin = 123_456_789
+      expect(User.truncate_spin(small_spin)).to eq small_spin
     end
   end
 end
