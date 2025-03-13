@@ -2,12 +2,17 @@ module ObfuscateId
   def obfuscate_id(options = {})
     require 'scatter_swap'
 
+    if options[:enforce_obfuscated] && options[:name].nil?
+      raise ArgumentError, "Option 'name' must be set when 'enforce_obfuscated' is true"
+    end
+
     extend ClassMethods
     include InstanceMethods
 
-    cattr_accessor :obfuscate_id_spin, :clean_url_class_name
+    cattr_accessor :obfuscate_id_spin, :clean_url_class_name, :enforce_obfuscated
 
     self.obfuscate_id_spin = (options[:spin] || obfuscate_id_default_spin)
+    self.enforce_obfuscated = options[:enforce_obfuscated] || false
     set_clean_url_class_name(name: options[:name])
   end
 
@@ -20,26 +25,46 @@ module ObfuscateId
   end
 
   module ClassMethods
-
     def set_clean_url_class_name(name: nil)
-      self.clean_url_class_name = name || self.name.gsub("::", "-").underscore
+      self.clean_url_class_name = name || self.name.gsub('::', '-').underscore
     end
 
     def find(*args)
       scope = args.slice!(0)
 
       if scope.is_a?(Array)
-        scope.map! {|a| deobfuscate_id(a).to_i}
+        if enforce_obfuscated
+          valid_ids = []
+          scope.each do |a|
+            unless a.to_s.start_with?("#{clean_url_class_name}-")
+              raise ActiveRecord::RecordNotFound, "Couldn't find #{name} with non-obfuscated ID"
+            end
+
+            # Matching ActiveRecord behavior - raise RecordNotFound for invalid IDs
+
+            valid_ids << deobfuscate_id(a).to_i
+          end
+          scope = valid_ids
+        else
+          scope.map! { |a| deobfuscate_id(a).to_i }
+        end
       else
+        if enforce_obfuscated && !scope.to_s.start_with?("#{clean_url_class_name}-")
+          raise ActiveRecord::RecordNotFound, "Couldn't find #{name} with non-obfuscated ID"
+        end
+
+        # Matching ActiveRecord behavior - raise RecordNotFound for invalid IDs
+
         scope = deobfuscate_id(scope)
+
       end
 
       super(scope)
     end
 
     def deobfuscate_id(obfuscated_id)
-      if obfuscated_id.to_s.start_with? "#{self.clean_url_class_name}-"
-        ObfuscateId.show(obfuscated_id, self.clean_url_class_name, self.obfuscate_id_spin)
+      if obfuscated_id.to_s.start_with? "#{clean_url_class_name}-"
+        ObfuscateId.show(obfuscated_id, clean_url_class_name, obfuscate_id_spin)
       else
         obfuscated_id
       end
@@ -49,8 +74,8 @@ module ObfuscateId
     # This makes it easy to drop obfuscate_id onto any model
     # and produce different obfuscated ids for different models
     def obfuscate_id_default_spin
-      alphabet = Array("a".."z")
-      number = name.split("").collect do |char|
+      alphabet = Array('a'..'z')
+      number = name.split('').collect do |char|
         alphabet.index(char)
       end
 
@@ -60,7 +85,7 @@ module ObfuscateId
 
   module InstanceMethods
     def to_param
-      ObfuscateId.hide(self.id, self.clean_url_class_name, self.class.obfuscate_id_spin)
+      ObfuscateId.hide(id, clean_url_class_name, self.class.obfuscate_id_spin)
     end
 
     def deobfuscate_id(obfuscated_id)
