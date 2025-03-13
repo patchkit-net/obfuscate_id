@@ -89,14 +89,14 @@ describe ObfuscateId do
     let(:obfuscated_id) { user.to_param }
     let(:raw_id) { user.id.to_s }
 
-    context 'when enforce_obfuscated is true' do
+    context 'when enforce_obfuscated is true and raise_errors is false' do
       before do
         class User < ActiveRecord::Base
           obfuscate_id name: 'user', enforce_obfuscated: true
         end
       end
 
-      it 'raises an error when trying to find by raw id' do
+      it 'raises ActiveRecord::RecordNotFound when trying to find by raw id' do
         expect { User.find(raw_id) }.to raise_error(ActiveRecord::RecordNotFound)
       end
 
@@ -104,8 +104,38 @@ describe ObfuscateId do
         expect(User.find(obfuscated_id)).to eq(user)
       end
 
-      it 'raises an error when trying to find multiple with raw ids' do
+      it 'raises ActiveRecord::RecordNotFound when trying to find multiple with raw ids' do
         expect { User.find([raw_id]) }.to raise_error(ActiveRecord::RecordNotFound)
+      end
+
+      it 'finds multiple records when using obfuscated ids' do
+        expect(User.find([obfuscated_id])).to eq([user])
+      end
+    end
+
+    context 'when enforce_obfuscated and raise_errors are true' do
+      before do
+        class User < ActiveRecord::Base
+          obfuscate_id name: 'user', enforce_obfuscated: true, raise_errors: true
+        end
+      end
+
+      it 'raises NonObfuscatedIdError when trying to find by raw id' do
+        expect { User.find(raw_id) }.to raise_error(ObfuscateId::NonObfuscatedIdError)
+      end
+
+      it 'includes helpful message in the error' do
+        User.find(raw_id)
+      rescue ObfuscateId::NonObfuscatedIdError => e
+        expect(e.message).to include("requires obfuscated IDs with prefix 'user-'")
+      end
+
+      it 'finds the record when using obfuscated id' do
+        expect(User.find(obfuscated_id)).to eq(user)
+      end
+
+      it 'raises NonObfuscatedIdError when trying to find multiple with raw ids' do
+        expect { User.find([raw_id]) }.to raise_error(ObfuscateId::NonObfuscatedIdError)
       end
 
       it 'finds multiple records when using obfuscated ids' do

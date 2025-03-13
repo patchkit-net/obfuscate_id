@@ -1,4 +1,7 @@
 module ObfuscateId
+  # Custom exception for non-obfuscated IDs when enforce_obfuscated is true
+  class NonObfuscatedIdError < StandardError; end
+
   def obfuscate_id(options = {})
     require 'scatter_swap'
 
@@ -9,10 +12,11 @@ module ObfuscateId
     extend ClassMethods
     include InstanceMethods
 
-    cattr_accessor :obfuscate_id_spin, :clean_url_class_name, :enforce_obfuscated
+    cattr_accessor :obfuscate_id_spin, :clean_url_class_name, :enforce_obfuscated, :raise_errors
 
     self.obfuscate_id_spin = (options[:spin] || obfuscate_id_default_spin)
     self.enforce_obfuscated = options[:enforce_obfuscated] || false
+    self.raise_errors = options[:raise_errors] || false
     set_clean_url_class_name(name: options[:name])
   end
 
@@ -36,27 +40,32 @@ module ObfuscateId
         if enforce_obfuscated
           valid_ids = []
           scope.each do |a|
-            unless a.to_s.start_with?("#{clean_url_class_name}-")
-              raise ActiveRecord::RecordNotFound, "Couldn't find #{name} with non-obfuscated ID"
+            if !a.to_s.start_with?("#{clean_url_class_name}-")
+              raise ActiveRecord::RecordNotFound, "Couldn't find #{name} with non-obfuscated ID" unless raise_errors
+
+              raise NonObfuscatedIdError,
+                    "#{name} requires obfuscated IDs with prefix '#{clean_url_class_name}-'"
+
+            # Use RecordNotFound to match ActiveRecord behavior
+
+            else
+              valid_ids << deobfuscate_id(a).to_i
             end
-
-            # Matching ActiveRecord behavior - raise RecordNotFound for invalid IDs
-
-            valid_ids << deobfuscate_id(a).to_i
           end
           scope = valid_ids
         else
           scope.map! { |a| deobfuscate_id(a).to_i }
         end
+      elsif enforce_obfuscated && !scope.to_s.start_with?("#{clean_url_class_name}-")
+        raise ActiveRecord::RecordNotFound, "Couldn't find #{name} with non-obfuscated ID" unless raise_errors
+
+        raise NonObfuscatedIdError,
+              "#{name} requires obfuscated IDs with prefix '#{clean_url_class_name}-'"
+
+        # Use RecordNotFound to match ActiveRecord behavior
+
       else
-        if enforce_obfuscated && !scope.to_s.start_with?("#{clean_url_class_name}-")
-          raise ActiveRecord::RecordNotFound, "Couldn't find #{name} with non-obfuscated ID"
-        end
-
-        # Matching ActiveRecord behavior - raise RecordNotFound for invalid IDs
-
         scope = deobfuscate_id(scope)
-
       end
 
       super(scope)
